@@ -18,6 +18,7 @@ function render(){
  const vals=stores.map(s=>{const v=item.prices[s];return v===undefined||v===null||v===''?null:Number(v);});const applicable=vals.map((v,i)=>v===null||!Number.isFinite(v)?null:effective(stores[i],v));const best=Math.min(...applicable.filter(v=>v!==null));
  stores.forEach((s,i)=>{const td=document.createElement('td');if(applicable[i]!==null&&applicable[i]===best)td.className='best';const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder='—';input.setAttribute('aria-label',item.name+' price at '+s);input.value=vals[i]===null?'':String(vals[i]);input.addEventListener('change',()=>{const n=input.value.trim()===''?null:Number(input.value);if(item.priceNotes)delete item.priceNotes[s];if(n===null)delete item.prices[s];else if(Number.isFinite(n)&&n>=0&&n<=100000)item.prices[s]=Math.round(n*100)/100;else{alert('Enter a valid non-negative price.');}persist();render();});if(item.priceNotes?.[s]){input.title='Historical '+item.priceNotes[s].date+' · '+item.priceNotes[s].pack+' · source URL not retained';}td.append(input);tr.append(td);if(applicable[i]!==null){totals[i]+=applicable[i];counts[i]++;}});tbody.append(tr);});
  const foot=$('#totals');foot.replaceChildren();const tr=document.createElement('tr'),lab=document.createElement('td');lab.textContent='Known subtotal';tr.append(lab);stores.forEach((s,i)=>{const td=document.createElement('td');td.textContent=counts[i]?money(totals[i])+' ('+counts[i]+'/'+state.items.length+')':'—';tr.append(td);});foot.append(tr);
+ if(!$('#savingsSection').hidden)savings(currentSavings);
  $('#comparisonNote').textContent='Subtotals only include entered prices. Do not compare incomplete totals as full basket costs. Morrisons discount is a personal calculation, not a retailer price.';
 }
 $('#add').onclick=()=>{const name=$('#newItem').value.trim();if(!name)return;if(state.items.length>=25){$('#message').textContent='Maximum 25 items per basket.';return;}state.items.push({id:Date.now(),name,prices:{}});$('#newItem').value='';persist();render();};
@@ -64,5 +65,41 @@ function loadResearch(){
  $('#message').textContent=count+' previously researched prices added; existing prices preserved.';
 }
 $('#compare').addEventListener('click',loadResearch);
+
+
+function priceAt(item,store){const p=item.prices[store];if(p===undefined||p===null||p==='')return null;const n=Number(p);return Number.isFinite(n)&&n>=0?effective(store,n):null;}
+function element(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
+function line(parent,name,amount,extra){const p=element('div',name+' — '+(amount===null?'—':money(amount))+(extra?' · '+extra:''),'savings-line');parent.append(p);}
+function savings(mode){
+ const out=$('#savingsOutput');out.replaceChildren();const n=state.items.length;
+ if(!n){out.append(element('p','Add items to your basket first.'));return;}
+ const shopResults=stores.map(store=>({store,found:state.items.filter(i=>priceAt(i,store)!==null),missing:state.items.filter(i=>priceAt(i,store)===null),total:state.items.reduce((sum,i)=>sum+(priceAt(i,store)??0),0)}));
+ const complete=shopResults.filter(x=>x.missing.length===0).sort((a,b)=>a.total-b.total);
+ const best=state.items.map(item=>{const offers=stores.map(store=>({store,price:priceAt(item,store)})).filter(x=>x.price!==null).sort((a,b)=>a.price-b.price);return {item,offer:offers[0]??null};});
+ const splitKnown=best.reduce((sum,x)=>sum+(x.offer?.price??0),0),splitMissing=best.filter(x=>!x.offer);
+ const heading=element('h3',mode==='split'?'Split shops':mode==='individual'?'Individual supermarket lists':'1-stop shop');out.append(heading);
+ const warn=element('p','Prices are historical or manually entered, not live. Check comparable pack sizes, discounts, availability and travel costs.','hint');out.append(warn);
+ if(mode==='split'){
+  out.append(element('p',splitMissing.length?'Known-item subtotal: '+money(splitKnown)+' ('+(n-splitMissing.length)+'/'+n+' items). No complete split-shop saving can be calculated.':'Split-shop estimate: '+money(splitKnown)+' for '+n+' items.'));
+  const groups=new Map(stores.map(s=>[s,[]]));for(const x of best)if(x.offer)groups.get(x.offer.store).push(x);
+  for(const [store,arr] of groups){if(!arr.length)continue;const d=element('div',undefined,'savings-group');d.append(element('h4',store));for(const x of arr)line(d,x.item.name,x.offer.price);d.append(element('strong','Subtotal: '+money(arr.reduce((s,x)=>s+x.offer.price,0))));out.append(d);}
+  if(splitMissing.length){const d=element('div',undefined,'savings-group');d.append(element('h4','No prices found'));for(const x of splitMissing)d.append(element('p',x.item.name));out.append(d);}
+  if(!splitMissing.length&&complete.length)out.append(element('p','Estimated saving vs cheapest complete 1-stop shop: '+money(Math.max(0,complete[0].total-splitKnown))+'.'));
+  else out.append(element('p','Savings vs a complete 1-stop shop: — (insufficient complete pricing).','hint'));
+ }else if(mode==='individual'){
+  for(const r of shopResults){const d=element('div',undefined,'savings-group');d.append(element('h4',r.store));d.append(element('p',(r.missing.length?'Known subtotal: ':'Complete basket: ')+money(r.total)+' · '+r.found.length+'/'+n+' priced'));for(const item of state.items)line(d,item.name,priceAt(item,r.store));if(r.missing.length)d.append(element('p','Missing '+r.missing.length+' price(s); subtotal is not a complete basket cost.','hint'));out.append(d);}
+ }else{
+  if(complete.length){const winner=complete[0];out.append(element('p','Cheapest complete 1-stop shop based on entered prices: '+winner.store+' — '+money(winner.total)));for(const r of complete)out.append(element('p',r.store+': '+money(r.total)));out.append(element('p','Split-shop comparison: '+(splitMissing.length?'— (missing prices)':money(splitKnown)+' · potential saving '+money(Math.max(0,winner.total-splitKnown)))));}
+  else out.append(element('p','No supermarket currently has a price for every item. A cheapest 1-stop shop cannot be determined yet.'));
+  for(const r of shopResults){const d=element('div',undefined,'savings-group');d.append(element('h4',r.store));d.append(element('p','Known subtotal '+money(r.total)+' · '+r.found.length+'/'+n+' items priced · '+r.missing.length+' missing'));if(r.missing.length)d.append(element('p','Missing: '+r.missing.map(x=>x.name).join(', '),'hint'));out.append(d);}
+ }
+}
+let currentSavings='split';
+function showSavings(mode){currentSavings=mode;$('#savingsSection').hidden=false;for(const [id,value] of [['splitShops','split'],['individualShops','individual'],['oneStopShop','one']])$('#'+id).classList.toggle('secondary',mode!==value);savings(mode);$('#savingsSection').scrollIntoView({behavior:'smooth',block:'start'});}
+$('#viewShoppingLists').onclick=()=>showSavings('split');
+$('#splitShops').onclick=()=>showSavings('split');
+$('#individualShops').onclick=()=>showSavings('individual');
+$('#oneStopShop').onclick=()=>showSavings('one');
+$('#backToPrices').onclick=()=>{$('#savingsSection').hidden=true;$('#compare').scrollIntoView({behavior:'smooth',block:'start'});};
 
 $('#check').onclick=check;render();check();
