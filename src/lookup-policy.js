@@ -2,7 +2,7 @@ import {freshness,STORES,MAX_PRODUCTS} from './pricing.js';
 // Server-side planner: share one queue row per product/store across all shoppers.
 // Only adapters explicitly authorised for automated reuse may fetch data.
 export function planLookups(products, latestPrices) {
- if(products.length>MAX_PRODUCTS) throw new Error('Maximum 25 products per weekly comparison');
+ if(products.length>MAX_PRODUCTS) throw new Error('Maximum 50 products per weekly comparison');
  const jobs=[];
  for(const product of products) for(const retailer of STORES) {
    const current=latestPrices.find(p=>p.product_id===product.id && p.retailer_id===retailer);
