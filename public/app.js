@@ -30,76 +30,29 @@ $('#restore').onclick=()=>{try{const d=JSON.parse(localStorage.getItem(snap));if
 $('#export').onclick=()=>{const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';const lines=[['Product',...stores].map(q).join(',')];state.items.forEach(item=>lines.push([item.name,...stores.map(s=>item.prices[s]??'')].map(q).join(',')));const blob=new Blob([lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='shop-n-save-basket.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 async function check(){const b=$('#check');b.disabled=true;$('#status').textContent='Checking…';const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);try{const r=await fetch(supabaseUrl+'/auth/v1/settings',{headers:{apikey:supabasePublishableKey},signal:controller.signal});if(!r.ok)throw Error('HTTP '+r.status);const d=await r.json();if(!d||typeof d.external!=='object')throw Error('Unexpected response');$('#status').textContent='Supabase service reachable. Shopping tables and cloud saving are not yet verified.';}catch(e){$('#status').textContent='Connection not confirmed. Try again later.';console.warn(e);}finally{clearTimeout(timeout);b.disabled=false;}}
 
-const research = [
- // Historical research compiled 17 November 2026; not a live feed.
- {i:1,s:'Tesco',p:1.95,pack:'250g butter'},
- {i:2,s:'Tesco',p:1.75,pack:'4 pints milk'},
- {i:5,s:'Tesco',p:2.95,pack:'12 eggs'},
- {i:10,s:'Tesco',p:1.00,pack:'fruit cocktail tin'},
- {i:11,s:'Tesco',p:1.99,pack:'chunky chips'},
- {i:12,s:'Tesco',p:2.55,pack:'Tribute IPA'},
- {i:17,s:'Tesco',p:2.45,pack:'cheese block'},
- {i:18,s:'Tesco',p:0.39,pack:'tinned potatoes'},
- {i:19,s:'Tesco',p:0.63,pack:'bourbon biscuits'},
- {i:2,s:'Morrisons',p:1.75,pack:'4 pints milk'},
- {i:5,s:'Morrisons',p:2.95,pack:'12 free-range eggs'},
- {i:8,s:'Morrisons',p:11.85,pack:'Whiskas 40 pouches'},
- {i:9,s:'Morrisons',p:3.30,pack:'Heinz ketchup 460g'},
- {i:13,s:'Morrisons',p:1.00,pack:'Jaffa Cakes 10 pack'},
- {i:17,s:'Morrisons',p:3.20,pack:'mature cheddar 400g'},
- {i:19,s:'Morrisons',p:0.65,pack:'bourbons 300g'},
- {i:9,s:'Asda',p:2.50,pack:'Heinz ketchup; size to confirm'},
- {i:2,s:'Lidl',p:1.75,pack:'milk'},
- {i:5,s:'Lidl',p:2.49,pack:'eggs'},
- {i:7,s:'Lidl',p:0.62,pack:'washing-up liquid'},
- {i:14,s:'Lidl',p:4.39,pack:'beef mince; weight/fat to confirm'},
- {i:17,s:'Lidl',p:2.45,pack:'cheddar; weight to confirm'}
-];
-function loadResearch(){
- let count=0;const skipped=[];
- for(const r of research){const item=state.items.find(x=>x.id===r.i&&x.name===starter[r.i]);if(!item){skipped.push(r.pack);continue;}
- if(item.prices[r.s]!==undefined&&item.prices[r.s]!==null&&item.prices[r.s]!=='')continue;
- item.prices[r.s]=r.p;item.priceNotes??={};item.priceNotes[r.s]={date:'2026-11-17',source:'Previously researched retailer listing (source URL not retained)',pack:r.pack,live:false};count++;}
- persist();render();
- $('#researchStatus').textContent='Loaded '+count+' historical price entries (research compiled 17 Nov 2026). Prices are not live; pack sizes may differ. Tap a price to edit it. No full-basket comparison is available until all 20 products are verified.';
- $('#message').textContent=count+' previously researched prices added; existing prices preserved.';
+async function loadResearch(){
+ const button=$('#compare');button.disabled=true;$('#researchStatus').textContent='Loading historical prices from Shop-n-Save database…';
+ try{
+  const url=supabaseUrl+'/rest/v1/researched_prices?select=basket_item_index,product_name,supermarket,price_gbp,pack_description,research_date,source_note,verification_status&order=research_date.desc&limit=500';
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),12000);
+  let response;try{response=await fetch(url,{headers:{apikey:supabasePublishableKey},signal:controller.signal});}finally{clearTimeout(timer);}
+  if(!response.ok)throw new Error('HTTP '+response.status);
+  const data=await response.json();if(!Array.isArray(data))throw new Error('Invalid price data');
+  let count=0;const used=new Set();
+  for(const r of data){
+   if(!Number.isInteger(r.basket_item_index)||r.basket_item_index<0||r.basket_item_index>=starter.length||!stores.includes(r.supermarket))continue;
+   const id=r.basket_item_index+1;const item=state.items.find(x=>x.id===id&&x.name===starter[r.basket_item_index]);if(!item)continue;
+   const k=id+'|'+r.supermarket;if(used.has(k))continue;used.add(k);
+   if(item.prices[r.supermarket]!==undefined&&item.prices[r.supermarket]!==null&&item.prices[r.supermarket]!=='')continue;
+   const n=Number(r.price_gbp);if(!Number.isFinite(n)||n<0)continue;
+   item.prices[r.supermarket]=n;item.priceNotes??={};item.priceNotes[r.supermarket]={date:r.research_date,source:r.source_note,pack:r.pack_description,live:r.verification_status==='verified'};count++;
+  }
+  persist();render();
+  $('#researchStatus').textContent='Database loaded: '+data.length+' historical price records available. Added '+count+' prices to your basket. Check product sizes and verification dates; not live prices.';
+  $('#message').textContent=count+' database prices added; existing prices preserved.';
+ }catch(error){$('#researchStatus').textContent='Could not load database prices. Check Supabase connectivity and try again.';console.warn('Price database load failed:',error);}
+ finally{button.disabled=false;}
 }
 $('#compare').addEventListener('click',loadResearch);
-
-
-function priceAt(item,store){const p=item.prices[store];if(p===undefined||p===null||p==='')return null;const n=Number(p);return Number.isFinite(n)&&n>=0?effective(store,n):null;}
-function element(tag,text,cls){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;}
-function line(parent,name,amount,extra){const p=element('div',name+' — '+(amount===null?'—':money(amount))+(extra?' · '+extra:''),'savings-line');parent.append(p);}
-function savings(mode){
- const out=$('#savingsOutput');out.replaceChildren();const n=state.items.length;
- if(!n){out.append(element('p','Add items to your basket first.'));return;}
- const shopResults=stores.map(store=>({store,found:state.items.filter(i=>priceAt(i,store)!==null),missing:state.items.filter(i=>priceAt(i,store)===null),total:state.items.reduce((sum,i)=>sum+(priceAt(i,store)??0),0)}));
- const complete=shopResults.filter(x=>x.missing.length===0).sort((a,b)=>a.total-b.total);
- const best=state.items.map(item=>{const offers=stores.map(store=>({store,price:priceAt(item,store)})).filter(x=>x.price!==null).sort((a,b)=>a.price-b.price);return {item,offer:offers[0]??null};});
- const splitKnown=best.reduce((sum,x)=>sum+(x.offer?.price??0),0),splitMissing=best.filter(x=>!x.offer);
- const heading=element('h3',mode==='split'?'Split shops':mode==='individual'?'Individual supermarket lists':'1-stop shop');out.append(heading);
- const warn=element('p','Prices are historical or manually entered, not live. Check comparable pack sizes, discounts, availability and travel costs.','hint');out.append(warn);
- if(mode==='split'){
-  out.append(element('p',splitMissing.length?'Known-item subtotal: '+money(splitKnown)+' ('+(n-splitMissing.length)+'/'+n+' items). No complete split-shop saving can be calculated.':'Split-shop estimate: '+money(splitKnown)+' for '+n+' items.'));
-  const groups=new Map(stores.map(s=>[s,[]]));for(const x of best)if(x.offer)groups.get(x.offer.store).push(x);
-  for(const [store,arr] of groups){if(!arr.length)continue;const d=element('div',undefined,'savings-group');d.append(element('h4',store));for(const x of arr)line(d,x.item.name,x.offer.price);d.append(element('strong','Subtotal: '+money(arr.reduce((s,x)=>s+x.offer.price,0))));out.append(d);}
-  if(splitMissing.length){const d=element('div',undefined,'savings-group');d.append(element('h4','No prices found'));for(const x of splitMissing)d.append(element('p',x.item.name));out.append(d);}
-  if(!splitMissing.length&&complete.length)out.append(element('p','Estimated saving vs cheapest complete 1-stop shop: '+money(Math.max(0,complete[0].total-splitKnown))+'.'));
-  else out.append(element('p','Savings vs a complete 1-stop shop: — (insufficient complete pricing).','hint'));
- }else if(mode==='individual'){
-  for(const r of shopResults){const d=element('div',undefined,'savings-group');d.append(element('h4',r.store));d.append(element('p',(r.missing.length?'Known subtotal: ':'Complete basket: ')+money(r.total)+' · '+r.found.length+'/'+n+' priced'));for(const item of state.items)line(d,item.name,priceAt(item,r.store));if(r.missing.length)d.append(element('p','Missing '+r.missing.length+' price(s); subtotal is not a complete basket cost.','hint'));out.append(d);}
- }else{
-  if(complete.length){const winner=complete[0];out.append(element('p','Cheapest complete 1-stop shop based on entered prices: '+winner.store+' — '+money(winner.total)));for(const r of complete)out.append(element('p',r.store+': '+money(r.total)));out.append(element('p','Split-shop comparison: '+(splitMissing.length?'— (missing prices)':money(splitKnown)+' · potential saving '+money(Math.max(0,winner.total-splitKnown)))));}
-  else out.append(element('p','No supermarket currently has a price for every item. A cheapest 1-stop shop cannot be determined yet.'));
-  for(const r of shopResults){const d=element('div',undefined,'savings-group');d.append(element('h4',r.store));d.append(element('p','Known subtotal '+money(r.total)+' · '+r.found.length+'/'+n+' items priced · '+r.missing.length+' missing'));if(r.missing.length)d.append(element('p','Missing: '+r.missing.map(x=>x.name).join(', '),'hint'));out.append(d);}
- }
-}
-let currentSavings='split';
-function showSavings(mode){currentSavings=mode;$('#savingsSection').hidden=false;for(const [id,value] of [['splitShops','split'],['individualShops','individual'],['oneStopShop','one']])$('#'+id).classList.toggle('secondary',mode!==value);savings(mode);$('#savingsSection').scrollIntoView({behavior:'smooth',block:'start'});}
-$('#viewShoppingLists').onclick=()=>showSavings('split');
-$('#splitShops').onclick=()=>showSavings('split');
-$('#individualShops').onclick=()=>showSavings('individual');
-$('#oneStopShop').onclick=()=>showSavings('one');
-$('#backToPrices').onclick=()=>{$('#savingsSection').hidden=true;$('#compare').scrollIntoView({behavior:'smooth',block:'start'});};
 
 $('#check').onclick=check;render();check();
