@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shop-n-Save | DesK Apps</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#18352a;background:#f5f8f4}*{box-sizing:border-box}
+body{margin:0}.wrap{max-width:840px;margin:auto;padding:20px}header{background:#17603c;color:white;padding:24px 20px}header h1{margin:0;font-size:2rem}header p{margin:4px 0 0}
+.panel{background:white;border:1px solid #dce7dd;border-radius:16px;padding:18px;margin:18px 0;box-shadow:0 2px 8px #1232}
+h2{margin:0 0 10px;font-size:1.25rem}p{line-height:1.45}.muted{color:#52675b;font-size:.9rem}
+form{display:flex;gap:8px;flex-wrap:wrap}input,select,button{font:inherit;padding:11px;border-radius:9px;border:1px solid #bdcec2}input{flex:1;min-width:170px}
+button{background:#17603c;color:white;border:0;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}
+.secondary{background:#e8f1ea;color:#164e32}.danger{background:#fbe9e9;color:#9b2222}
+.item{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid #edf1ed}.item:last-child{border-bottom:0}
+.item label{flex:1;display:flex;align-items:center;gap:12px}.item input[type=checkbox]{width:23px;height:23px;min-width:23px;accent-color:#17603c}
+.done{text-decoration:line-through;color:#74877b}.actions{display:flex;gap:8px;flex-wrap:wrap}
+.store{font-weight:700;color:#17603c}.price{color:#17603c;font-weight:700}
+.smallbtn{padding:7px 9px;font-size:.85rem}.missing{border-left:3px solid #dd9d2b;padding-left:10px;margin:10px 0}
+footer{text-align:center;color:#53685c;font-size:.8rem;padding:24px}
+</style></head><body>
+<header><div class="wrap"><h1>🛒 Shop-n-Save</h1><p>Compare your basket. Tick off your shopping. Keep your results on this device.</p></div></header>
+<main class="wrap">
+<section class="panel"><h2>My shopping list</h2><p class="muted" id="allowance"></p>
+<form id="add"><input id="product" maxlength="100" placeholder="Add a product, e.g. 4 pints milk" required aria-label="Product name"><button>Add item</button></form>
+<div id="items"></div><p id="empty" class="muted">Add your first shopping item above.</p></section>
+<section class="panel"><h2>Saved price comparisons</h2>
+<p class="muted">Enter prices you have verified, or use the web search below. Prices are saved on this device with their source and date. No automatic price extraction is performed.</p>
+<div id="prices"></div></section>
+<section class="panel"><h2>Find missing prices</h2><p id="missing-summary" class="muted"></p>
+<div id="missing"></div><button id="search-all" type="button">🔎 Search Web for Missing Prices</button>
+<p class="muted">Opens a web search for one missing product at a time. Check the exact product, pack size, location and price yourself before saving. No retailer website is scraped.</p></section>
+<section class="panel"><h2>My shopping progress</h2><p id="progress"></p>
+<div class="actions"><button id="reset-ticks" class="secondary" type="button">Untick all items</button><button id="export" class="secondary" type="button">Export my list</button></div>
+<p class="muted">This is a local-first prototype. Shared prices and weekly account enforcement will be connected after backend setup.</p></section>
+</main><footer>DesK Apps · Shop-n-Save · Prices are indicative until independently verified. Check shelf prices before buying.</footer>
+<script>
+const KEY='shopnsave-local-v1', STORES=['Tesco','Morrisons','Asda',"Sainsbury's",'Lidl'];
+const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const id=()=>crypto.randomUUID?.()||String(Date.now())+Math.random();
+const week=()=>{let d=new Date(),w=(d.getDay()+6)%7;d.setDate(d.getDate()-w);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+let data;try{data=JSON.parse(localStorage.getItem(KEY))||{items:[],prices:[],week:week()}}catch{data={items:[],prices:[],week:week()}}
+if(data.week!==week()){data.week=week();data.weekAdded=0}
+data.weekAdded??=data.items.length;
+function save(){localStorage.setItem(KEY,JSON.stringify(data));render()}
+const $=id=>document.getElementById(id);
+function findMissing(){return data.items.flatMap(item=>STORES.filter(store=>!data.prices.some(p=>p.itemId===item.id&&p.store===store&&Date.now()-new Date(p.verifiedAt).getTime()<=14*86400000)).map(store=>({item,store})))}
+function render(){
+ $('allowance').textContent=`${data.weekAdded}/50 products added this week · ${data.items.length} in list. Previously saved items stay available.`;
+ $('empty').hidden=data.items.length>0;
+ $('items').innerHTML=data.items.map(item=>`<div class="item"><label><input type="checkbox" data-tick="${item.id}" ${item.checked?'checked':''}><span class="${item.checked?'done':''}">${safe(item.name)}</span></label><button class="smallbtn danger" data-remove="${item.id}" aria-label="Remove ${safe(item.name)}">Remove</button></div>`).join('');
+ $('progress').textContent=`${data.items.filter(i=>i.checked).length} of ${data.items.length} items collected`;
+ $('prices').innerHTML=data.items.map(item=>{
+ const rows=data.prices.filter(p=>p.itemId===item.id);
+ const valid=rows.filter(p=>Date.now()-new Date(p.verifiedAt).getTime()<=14*86400000);
+ const lowest=valid.length?Math.min(...valid.map(p=>p.pence)):null;
+ return `<div class="item" style="display:block"><strong>${safe(item.name)}</strong><div class="muted">${rows.length?rows.map(p=>`${safe(p.store)}: <span class="${p.pence===lowest?'price':''}">£${(p.pence/100).toFixed(2)}</span> (${safe(p.verifiedAt.slice(0,10))}${Date.now()-new Date(p.verifiedAt).getTime()>14*86400000?', historical':''})`).join(' · '):'No verified prices yet'}</div></div>`
+ }).join('')||'<p class="muted">No products yet.</p>';
+ const missing=findMissing();$('missing-summary').textContent=`${missing.length} missing or historical store-product prices. Choose an entry to search and confirm it.`;
+ $('search-all').disabled=missing.length===0;$('search-all').textContent=missing.length?'🔎 Search Web for Missing Prices':'✓ All Prices Checked';
+ $('missing').innerHTML=missing.map(({item,store},i)=>`<div class="missing"><strong>${safe(item.name)}</strong> — ${safe(store)}<div class="actions"><button type="button" class="secondary smallbtn" data-search="${i}">Search web</button><button type="button" class="smallbtn" data-confirm="${i}">Enter verified price</button></div></div>`).join('');
+}
+$('add').addEventListener('submit',e=>{e.preventDefault();const name=$('product').value.trim();if(!name)return;if(data.weekAdded>=50){alert('You have reached your 50-new-product allowance for this week.');return}
+if(data.items.some(i=>i.name.toLowerCase()===name.toLowerCase())){alert('Already in your shopping list.');return}
+data.items.push({id:id(),name,checked:false});data.weekAdded++;$('product').value='';save()});
+$('items').addEventListener('change',e=>{const item=data.items.find(i=>i.id===e.target.dataset.tick);if(item){item.checked=e.target.checked;save()}});
+$('items').addEventListener('click',e=>{const itemId=e.target.dataset.remove;if(itemId&&confirm('Remove this product from your shopping list?')){data.items=data.items.filter(i=>i.id!==itemId);save()}});
+function openSearch(entry){const q=`${entry.item.name} ${entry.store} UK grocery price`;window.open('https://www.google.com/search?q='+encodeURIComponent(q),'_blank','noopener,noreferrer')}
+function confirmPrice(entry){const raw=prompt(`Verified price for ${entry.item.name} at ${entry.store} (£):`);if(raw===null)return;
+if(!/^\d+(\.\d{1,2})?$/.test(raw)||Number(raw)<=0){alert('Enter a valid positive price in pounds.');return}
+const source=prompt('Where did you verify this price? Enter the webpage URL or source description:');if(!source?.trim())return;
+data.prices=data.prices.filter(p=>!(p.itemId===entry.item.id&&p.store===entry.store));
+data.prices.push({itemId:entry.item.id,store:entry.store,pence:Math.round(Number(raw)*100),source:source.trim(),verifiedAt:new Date().toISOString()});save()}
+$('missing').addEventListener('click',e=>{const missing=findMissing(),i=Number(e.target.dataset.search??e.target.dataset.confirm);if(!Number.isInteger(i)||!missing[i])return;
+if(e.target.hasAttribute('data-search'))openSearch(missing[i]);else if(e.target.hasAttribute('data-confirm'))confirmPrice(missing[i])});
+$('search-all').addEventListener('click',()=>{const missing=findMissing();if(missing.length)openSearch(missing[0])});
+$('reset-ticks').addEventListener('click',()=>{data.items.forEach(i=>i.checked=false);save()});
+$('export').addEventListener('click',()=>{const text=data.items.map(i=>`${i.checked?'[x]':'[ ]'} ${i.name}`).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type:'text/plain'}));a.download='shop-n-save-list.txt';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)});
+render();
+</script></body></html>
