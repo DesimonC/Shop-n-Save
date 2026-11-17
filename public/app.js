@@ -16,7 +16,7 @@ function render(){
  const tbody=$('#prices');tbody.replaceChildren();let totals=stores.map(()=>0),counts=stores.map(()=>0);
  state.items.forEach(item=>{const tr=document.createElement('tr'),title=document.createElement('td');title.textContent=item.name;tr.append(title);
  const vals=stores.map(s=>{const v=item.prices[s];return v===undefined||v===null||v===''?null:Number(v);});const applicable=vals.map((v,i)=>v===null||!Number.isFinite(v)?null:effective(stores[i],v));const best=Math.min(...applicable.filter(v=>v!==null));
- stores.forEach((s,i)=>{const td=document.createElement('td');if(applicable[i]!==null&&applicable[i]===best)td.className='best';const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder='—';input.setAttribute('aria-label',item.name+' price at '+s);input.value=vals[i]===null?'':String(vals[i]);input.addEventListener('change',()=>{const n=input.value.trim()===''?null:Number(input.value);if(n===null)delete item.prices[s];else if(Number.isFinite(n)&&n>=0&&n<=100000)item.prices[s]=Math.round(n*100)/100;else{alert('Enter a valid non-negative price.');}persist();render();});td.append(input);tr.append(td);if(applicable[i]!==null){totals[i]+=applicable[i];counts[i]++;}});tbody.append(tr);});
+ stores.forEach((s,i)=>{const td=document.createElement('td');if(applicable[i]!==null&&applicable[i]===best)td.className='best';const input=document.createElement('input');input.type='number';input.min='0';input.step='0.01';input.inputMode='decimal';input.placeholder='—';input.setAttribute('aria-label',item.name+' price at '+s);input.value=vals[i]===null?'':String(vals[i]);input.addEventListener('change',()=>{const n=input.value.trim()===''?null:Number(input.value);if(item.priceNotes)delete item.priceNotes[s];if(n===null)delete item.prices[s];else if(Number.isFinite(n)&&n>=0&&n<=100000)item.prices[s]=Math.round(n*100)/100;else{alert('Enter a valid non-negative price.');}persist();render();});if(item.priceNotes?.[s]){input.title='Historical '+item.priceNotes[s].date+' · '+item.priceNotes[s].pack+' · source URL not retained';}td.append(input);tr.append(td);if(applicable[i]!==null){totals[i]+=applicable[i];counts[i]++;}});tbody.append(tr);});
  const foot=$('#totals');foot.replaceChildren();const tr=document.createElement('tr'),lab=document.createElement('td');lab.textContent='Known subtotal';tr.append(lab);stores.forEach((s,i)=>{const td=document.createElement('td');td.textContent=counts[i]?money(totals[i])+' ('+counts[i]+'/'+state.items.length+')':'—';tr.append(td);});foot.append(tr);
  $('#comparisonNote').textContent='Subtotals only include entered prices. Do not compare incomplete totals as full basket costs. Morrisons discount is a personal calculation, not a retailer price.';
 }
@@ -28,4 +28,41 @@ $('#save').onclick=()=>{try{localStorage.setItem(snap,JSON.stringify(state));$('
 $('#restore').onclick=()=>{try{const d=JSON.parse(localStorage.getItem(snap));if(!valid(d))throw Error();state=d;persist();render();$('#message').textContent='Snapshot restored.';}catch{$('#message').textContent='No valid saved snapshot found.';}};
 $('#export').onclick=()=>{const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';const lines=[['Product',...stores].map(q).join(',')];state.items.forEach(item=>lines.push([item.name,...stores.map(s=>item.prices[s]??'')].map(q).join(',')));const blob=new Blob([lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='shop-n-save-basket.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 async function check(){const b=$('#check');b.disabled=true;$('#status').textContent='Checking…';const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);try{const r=await fetch(supabaseUrl+'/auth/v1/settings',{headers:{apikey:supabasePublishableKey},signal:controller.signal});if(!r.ok)throw Error('HTTP '+r.status);const d=await r.json();if(!d||typeof d.external!=='object')throw Error('Unexpected response');$('#status').textContent='Supabase service reachable. Shopping tables and cloud saving are not yet verified.';}catch(e){$('#status').textContent='Connection not confirmed. Try again later.';console.warn(e);}finally{clearTimeout(timeout);b.disabled=false;}}
+
+const research = [
+ // Historical research compiled 17 November 2026; not a live feed.
+ {i:1,s:'Tesco',p:1.95,pack:'250g butter'},
+ {i:2,s:'Tesco',p:1.75,pack:'4 pints milk'},
+ {i:5,s:'Tesco',p:2.95,pack:'12 eggs'},
+ {i:10,s:'Tesco',p:1.00,pack:'fruit cocktail tin'},
+ {i:11,s:'Tesco',p:1.99,pack:'chunky chips'},
+ {i:12,s:'Tesco',p:2.55,pack:'Tribute IPA'},
+ {i:17,s:'Tesco',p:2.45,pack:'cheese block'},
+ {i:18,s:'Tesco',p:0.39,pack:'tinned potatoes'},
+ {i:19,s:'Tesco',p:0.63,pack:'bourbon biscuits'},
+ {i:2,s:'Morrisons',p:1.75,pack:'4 pints milk'},
+ {i:5,s:'Morrisons',p:2.95,pack:'12 free-range eggs'},
+ {i:8,s:'Morrisons',p:11.85,pack:'Whiskas 40 pouches'},
+ {i:9,s:'Morrisons',p:3.30,pack:'Heinz ketchup 460g'},
+ {i:13,s:'Morrisons',p:1.00,pack:'Jaffa Cakes 10 pack'},
+ {i:17,s:'Morrisons',p:3.20,pack:'mature cheddar 400g'},
+ {i:19,s:'Morrisons',p:0.65,pack:'bourbons 300g'},
+ {i:9,s:'Asda',p:2.50,pack:'Heinz ketchup; size to confirm'},
+ {i:2,s:'Lidl',p:1.75,pack:'milk'},
+ {i:5,s:'Lidl',p:2.49,pack:'eggs'},
+ {i:7,s:'Lidl',p:0.62,pack:'washing-up liquid'},
+ {i:14,s:'Lidl',p:4.39,pack:'beef mince; weight/fat to confirm'},
+ {i:17,s:'Lidl',p:2.45,pack:'cheddar; weight to confirm'}
+];
+function loadResearch(){
+ let count=0;const skipped=[];
+ for(const r of research){const item=state.items.find(x=>x.id===r.i&&x.name===starter[r.i]);if(!item){skipped.push(r.pack);continue;}
+ if(item.prices[r.s]!==undefined&&item.prices[r.s]!==null&&item.prices[r.s]!=='')continue;
+ item.prices[r.s]=r.p;item.priceNotes??={};item.priceNotes[r.s]={date:'2026-11-17',source:'Previously researched retailer listing (source URL not retained)',pack:r.pack,live:false};count++;}
+ persist();render();
+ $('#researchStatus').textContent='Loaded '+count+' historical price entries (research compiled 17 Nov 2026). Prices are not live; pack sizes may differ. Tap a price to edit it. No full-basket comparison is available until all 20 products are verified.';
+ $('#message').textContent=count+' previously researched prices added; existing prices preserved.';
+}
+$('#compare').addEventListener('click',loadResearch);
+
 $('#check').onclick=check;render();check();
