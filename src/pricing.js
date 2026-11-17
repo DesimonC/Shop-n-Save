@@ -1,5 +1,5 @@
 export const STORES = ['tesco','morrisons','asda','sainsburys','lidl'];
-export const MAX_PRODUCTS = 25;
+export const MAX_PRODUCTS = 50;
 export const DAY = 86400000;
 export function freshness(observedAt, now = Date.now()) {
   if (!observedAt) return 'missing';
