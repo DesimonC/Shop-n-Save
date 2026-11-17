@@ -1,11 +1,13 @@
 import {supabaseUrl,supabasePublishableKey} from './config.js';
 const stores=['Tesco','Asda','Morrisons',"Sainsbury's",'Aldi','Lidl'];
-const starter=['Chicken breasts (approx. 4)','Unsalted butter block','Milk (4 pints)','50/50 bread (800g)','KitKat 2 Finger (8 pack)','Eggs (12)','Yorkshire Tea or PG Tips','Washing-up liquid','Whiskas cat food (40 pouches)','Heinz tomato ketchup','Fruit cocktail tin','Frozen chunky chips','Tribute IPA','Jaffa Cakes','Beef mince (5% or 20%, label clearly)','Potatoes','Lily’s Kitchen dog food (12 tins)','Cheese block (approx. 400g)','Tinned potatoes','Bourbon biscuits'];
+const starter=['Chicken breasts (approx. 4)','Unsalted butter block','Milk (4 pints)','50/50 bread (800g)','KitKat 2 Finger (8 pack)','Eggs (12)','Yorkshire Tea or PG Tips','Washing-up liquid','Whiskas cat food (40 pouches)','Heinz tomato ketchup','Fruit cocktail tin','Frozen chunky chips','Tribute IPA','Jaffa Cakes','Beef mince (5% or 20%, label clearly)','Potatoes','Variety crisps (6 pack)','Cheese block (approx. 400g)','Tinned potatoes','Bourbon biscuits'];
 const key='desk-shop-n-save-draft-v1',snap='desk-shop-n-save-snapshot-v1';
 const $=s=>document.querySelector(s);
 function fresh(){return {items:starter.map((name,i)=>({id:i+1,name,prices:{}})),discount:false};}
 function valid(d){return d&&Array.isArray(d.items)&&d.items.length<=25&&d.items.every(x=>typeof x.name==='string'&&x.prices&&typeof x.prices==='object');}
 let state;try{state=JSON.parse(localStorage.getItem(key));if(!valid(state))state=fresh();}catch{state=fresh();}
+// Preserve saved basket edits but migrate the original starter's replaced item.
+const oldItem=state.items.find(x=>x.id===17&&x.name==='Lily’s Kitchen dog food (12 tins)');if(oldItem){oldItem.name='Variety crisps (6 pack)';oldItem.prices={};oldItem.priceNotes={};}
 const money=n=>'£'+n.toFixed(2);
 const effective=(s,p)=>s==='Morrisons'&&state.discount?p*.85:p;
 function persist(){try{localStorage.setItem(key,JSON.stringify(state));}catch{$('#message').textContent='Unable to save in this browser.';}}
@@ -43,13 +45,13 @@ async function loadResearch(){
    if(!Number.isInteger(r.basket_item_index)||r.basket_item_index<0||r.basket_item_index>=starter.length||!stores.includes(r.supermarket))continue;
    const id=r.basket_item_index+1;const item=state.items.find(x=>x.id===id&&x.name===starter[r.basket_item_index]);if(!item)continue;
    const k=id+'|'+r.supermarket;if(used.has(k))continue;used.add(k);
-   if(item.prices[r.supermarket]!==undefined&&item.prices[r.supermarket]!==null&&item.prices[r.supermarket]!=='')continue;
+   if(item.prices[r.supermarket]!==undefined&&item.prices[r.supermarket]!==null&&item.prices[r.supermarket]!==''&&!item.priceNotes?.[r.supermarket])continue;
    const n=Number(r.price_gbp);if(!Number.isFinite(n)||n<0)continue;
    item.prices[r.supermarket]=n;item.priceNotes??={};item.priceNotes[r.supermarket]={date:r.research_date,source:r.source_note,pack:r.pack_description,live:r.verification_status==='verified'};count++;
   }
   persist();render();
-  $('#researchStatus').textContent='Database loaded: '+data.length+' historical price records available. Added '+count+' prices to your basket. Check product sizes and verification dates; not live prices.';
-  $('#message').textContent=count+' database prices added; existing prices preserved.';
+  $('#researchStatus').textContent='Database loaded: '+data.length+' historical price records available. Loaded/refreshed '+count+' prices. Check product sizes and verification dates; not live prices.';
+  $('#message').textContent=count+' historical prices loaded/refreshed; manually entered prices preserved.';
  }catch(error){$('#researchStatus').textContent='Could not load database prices. Check Supabase connectivity and try again.';console.warn('Price database load failed:',error);}
  finally{button.disabled=false;}
 }
