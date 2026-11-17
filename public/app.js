@@ -32,14 +32,16 @@ $('#restore').onclick=()=>{try{const d=JSON.parse(localStorage.getItem(snap));if
 $('#export').onclick=()=>{const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';const lines=[['Product',...stores].map(q).join(',')];state.items.forEach(item=>lines.push([item.name,...stores.map(s=>item.prices[s]??'')].map(q).join(',')));const blob=new Blob([lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='shop-n-save-basket.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 async function check(){const b=$('#check');b.disabled=true;$('#status').textContent='Checking…';const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000);try{const r=await fetch(supabaseUrl+'/auth/v1/settings',{headers:{apikey:supabasePublishableKey},signal:controller.signal});if(!r.ok)throw Error('HTTP '+r.status);const d=await r.json();if(!d||typeof d.external!=='object')throw Error('Unexpected response');$('#status').textContent='Supabase service reachable. Shopping tables and cloud saving are not yet verified.';}catch(e){$('#status').textContent='Connection not confirmed. Try again later.';console.warn(e);}finally{clearTimeout(timeout);b.disabled=false;}}
 
+async function fetchResearchPrices(){
+ const url=supabaseUrl+'/rest/v1/researched_prices?select=basket_item_index,product_name,supermarket,price_gbp,pack_description,research_date,source_note,verification_status&order=research_date.desc&limit=500';
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+ try{const response=await fetch(url,{headers:{apikey:supabasePublishableKey},signal:controller.signal});if(!response.ok)throw new Error('HTTP '+response.status);const data=await response.json();if(!Array.isArray(data))throw new Error('Invalid price data');return data;}
+ finally{clearTimeout(timer);}
+}
 async function loadResearch(){
  const button=$('#compare');button.disabled=true;$('#researchStatus').textContent='Loading historical prices from Shop-n-Save database…';
  try{
-  const url=supabaseUrl+'/rest/v1/researched_prices?select=basket_item_index,product_name,supermarket,price_gbp,pack_description,research_date,source_note,verification_status&order=research_date.desc&limit=500';
-  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),12000);
-  let response;try{response=await fetch(url,{headers:{apikey:supabasePublishableKey},signal:controller.signal});}finally{clearTimeout(timer);}
-  if(!response.ok)throw new Error('HTTP '+response.status);
-  const data=await response.json();if(!Array.isArray(data))throw new Error('Invalid price data');
+  const data=await fetchResearchPrices();
   let count=0;const used=new Set();
   for(const r of data){
    if(!Number.isInteger(r.basket_item_index)||r.basket_item_index<0||r.basket_item_index>=starter.length||!stores.includes(r.supermarket))continue;
@@ -56,5 +58,24 @@ async function loadResearch(){
  finally{button.disabled=false;}
 }
 $('#compare').addEventListener('click',loadResearch);
+$('#researchPrices').addEventListener('click',async()=>{
+ const button=$('#researchPrices'),panel=$('#researchPanel'),out=$('#researchResults');
+ button.disabled=true;panel.hidden=false;out.replaceChildren();out.append(element('p','Checking saved research…'));
+ try{
+  const data=await fetchResearchPrices();out.replaceChildren();
+  const unique=new Map();for(const r of data){const k=r.basket_item_index+'|'+r.supermarket;if(!unique.has(k))unique.set(k,r);}
+  out.append(element('p',unique.size+' saved price records. These are historical, not live prices.'));
+  for(const store of stores){
+   const group=element('div',undefined,'savings-group');const matching=state.items.map(item=>({item,record:unique.get((item.id-1)+'|'+store)}));
+   group.append(element('h4',store+' · '+matching.filter(x=>x.record).length+'/'+state.items.length+' products'));
+   for(const x of matching){
+    const r=x.record;
+    group.append(element('p',x.item.name+' — '+(r?money(Number(r.price_gbp))+' · '+r.pack_description+' · '+r.research_date+' · '+r.verification_status:'— Not researched'),'savings-line'));
+   }
+   out.append(group);
+  }
+ }catch(e){out.replaceChildren();out.append(element('p','Research database could not be reached. Please try again.'));console.warn(e);}
+ finally{button.disabled=false;}
+});
 
 $('#check').onclick=check;render();check();
